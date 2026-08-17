@@ -1,9 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using ResumeBuilder.API.DTOs;
 using ResumeBuilder.API.Models;
 using ResumeBuilder.API.Repositories.Interfaces;
 using ResumeBuilder.API.Services;
 using ResumeBuilder.API.Services.Interfaces;
+using System.Security;
+using static ResumeBuilder.API.EnumsCodes;
 
 namespace ResumeBuilder.API.Controllers
 {
@@ -137,7 +140,7 @@ namespace ResumeBuilder.API.Controllers
 
             var agent = Request.Headers.UserAgent.ToString();
 
-            var response =  await _authService.LoginAsync(dto, ip, agent);
+            var response = await _authService.LoginAsync(dto, ip, agent);
 
             if (response == null)
             {
@@ -156,26 +159,49 @@ namespace ResumeBuilder.API.Controllers
             });
         }
 
+        
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh(RefreshTokenRequestDTO dto)
         {
-            var response = await _authService.RefreshTokenAsync(dto, HttpContext.Connection.RemoteIpAddress?.ToString(), Request.Headers.UserAgent.ToString());
+            string? ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+            string? userAgent = Request.Headers.UserAgent.ToString();
+            var result = await _authService.RefreshTokenAsync(dto, ipAddress, userAgent);
 
-            if (response == null)
+            switch (result.Result)
             {
-                return Unauthorized(new ApiResponse<object>
-                {
-                    Success = false,
-                    Message = "Invalid refresh token."
-                });
+                case RefreshTokenResult.Success:
+
+                    return Ok(new ApiResponse<LoginResponseDTO>
+                        {
+                            Success = true,
+                            Message = "Token refreshed successfully.",
+                            Data = result.Tokens
+                        });
+
+                case RefreshTokenResult.ReplayDetected:
+                    return Unauthorized(new ApiResponse<object>
+                        {
+                            Success = false,
+                            Message = "Session security validation failed. Please login again.",
+                            Data = null
+                        });
+
+                case RefreshTokenResult.Expired:
+                    return Unauthorized(new ApiResponse<object>
+                        {
+                            Success = false,
+                            Message = "Refresh token has expired.",
+                            Data = null
+                        });
+
+                default:
+                    return Unauthorized(new ApiResponse<object>
+                        {
+                            Success = false,
+                            Message = "Invalid refresh token.",
+                            Data = null
+                        });
             }
-
-            return Ok(new ApiResponse<LoginResponseDTO>
-            {
-                Success = true,
-                Message = "Token refreshed successfully.",
-                Data = response
-            });
         }
 
         [HttpPost("logout")]
@@ -206,6 +232,56 @@ namespace ResumeBuilder.API.Controllers
                 {
                     Success = true,
                     Message = "Logout successful.",
+                    Data = null
+                });
+        }
+
+        [Authorize]
+        [HttpPost("logout-all")]
+        public async Task<IActionResult> LogoutAllDevices()
+        {
+            var userIdClaim = User.FindFirst("UserId");
+
+            if (userIdClaim == null)
+            {
+                return Unauthorized(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Invalid authentication token."
+                    });
+            }
+
+            if (!int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return Unauthorized(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Invalid authentication token."
+                    });
+            }
+
+            string? ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+            bool result =
+                await _authService.LogoutAllDevicesAsync(userId, ipAddress);
+
+            if (!result)
+            {
+                return BadRequest(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Unable to logout from all devices."
+                    });
+            }
+
+            return Ok(
+                new ApiResponse<object>
+                {
+                    Success = true,
+                    Message = "Logged out from all devices successfully.",
                     Data = null
                 });
         }

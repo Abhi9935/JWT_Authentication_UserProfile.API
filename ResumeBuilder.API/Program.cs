@@ -26,16 +26,8 @@ builder.Services.AddOpenApi(options =>
     options.AddScalarTransformers(); // Injected from Scalar.AspNetCore.Microsoft
 });
 
-
-builder.Services.AddDbContext<ResumeBuilderDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-builder.Services.AddSingleton<IResumebuilderServices, ResumebuilderServices>();
-
 //
-
 // *********************** New Service Code Below ***********************
-
 //
 
 //builder.Services.AddSwaggerGen();

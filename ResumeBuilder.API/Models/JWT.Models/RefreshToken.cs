@@ -10,6 +10,7 @@ namespace ResumeBuilder.API.Models.JWT.Models
         public int RefreshTokenId { get; set; }
 
         public int UserId { get; set; }
+        public Guid TokenFamilyId { get; set; }
 
         [Required]
         [StringLength(64)]

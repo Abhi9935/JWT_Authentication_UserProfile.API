@@ -15,6 +15,14 @@
             Inactive,
             Suspended
         }
-
+        public enum RefreshTokenResult
+        {
+            Success,
+            InvalidToken,
+            Expired,
+            ReplayDetected,
+            UserNotFound,
+            AccountInactive
+        }
     }
 }

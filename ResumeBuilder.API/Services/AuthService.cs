@@ -1,11 +1,11 @@
 ﻿using Microsoft.Extensions.Options;
 using ResumeBuilder.API.DTOs;
-using ResumeBuilder.API.Model.Users;
 using ResumeBuilder.API.Models;
 using ResumeBuilder.API.Models.JWT.Models;
 using ResumeBuilder.API.Repositories.Interfaces;
 using ResumeBuilder.API.Services.Interfaces;
-using System.Runtime.Intrinsics.Arm;
+using System.Security;
+using static ResumeBuilder.API.EnumsCodes;
 
 namespace ResumeBuilder.API.Services
 {
@@ -68,56 +68,58 @@ namespace ResumeBuilder.API.Services
             // Normalize Email
             string email = dto.UserEmail.Trim().ToLower();
 
-            // Step 1 : Find User           
+            //  Find User           
             var user = await _userRepository.GetUserByEmailAsync(email);
 
             if (user == null)
                 return null;
 
-            // Step 2 : Verify Password 
+            //Verify Password 
             bool passwordVerified = BCrypt.Net.BCrypt.Verify(dto.Password, user.UserHashedPass);
 
             if (!passwordVerified)
                 return null;
-            
-            // Step 3 : Check Account Status
+
+            // Check Account Status
             if (!user.AccountStatus.Equals("Active", StringComparison.OrdinalIgnoreCase))
             {
                 throw new UnauthorizedAccessException("Account is inactive.");
             }
-            
-            // Step 4 : Generate Access Token
+
+            // Generate Access Token
             string accessToken = _jwtService.GenerateAccessToken(user);
-                        
-            // Step 5 : Generate Refresh Token
+
+            // Generate Refresh Token
             string refreshToken = _jwtService.GenerateRefreshToken();
-                        
-            // Step 6 : Hash Refresh Token
+
+            // Hash Refresh Token
             string refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
-            
-            // Step 7 : Create RefreshToken Entity
-            RefreshToken refreshTokenEntity =  new RefreshToken
-                {
-                    UserId = user.UserId,
-                    TokenHash = refreshTokenHash,
-                    CreatedAt = DateTime.UtcNow,
-                    ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
 
-                    RevokedAt = null,
-                    ReplacedByTokenHash = null,
-                    CreatedByIp = ipAddress,
-                    RevokedByIp = null,
-                    UserAgent = userAgent
-                };
+            Guid tokenFamilyId = Guid.NewGuid();
+            // Create RefreshToken Entity
+            RefreshToken refreshTokenEntity = new RefreshToken
+            {
+                UserId = user.UserId,
+                TokenHash = refreshTokenHash,
+                TokenFamilyId = tokenFamilyId,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
 
-            
-            // Step 8 : Save Refresh Token
+                RevokedAt = null,
+                ReplacedByTokenHash = null,
+                CreatedByIp = ipAddress,
+                RevokedByIp = null,
+                UserAgent = userAgent
+            };
+
+
+            // Save Refresh Token
             await _refreshTokenRepository.AddAsync(refreshTokenEntity);
 
             await _refreshTokenRepository.SaveChangesAsync();
-            
-            // Step 9 : Return Tokens
-            
+
+            // Return Tokens
+
             return new LoginResponseDTO
             {
                 AccessToken = accessToken,
@@ -134,78 +136,138 @@ namespace ResumeBuilder.API.Services
 
         #endregion
 
-        public async Task<LoginResponseDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent)
+        public async Task<RefreshTokenResultDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent)
         {
-            // Step 4 – Read Expired JWT
+            // Read Expired JWT
             var principal = _jwtService.GetPrincipalFromExpiredToken(dto.AccessToken);
 
             if (principal == null)
                 return null;
 
-            //Step 5 - Get UserId
+            //Get UserId
             var userIdClaim = principal.FindFirst("UserId");
 
             if (userIdClaim == null)
                 return null;
 
             int userId = int.Parse(userIdClaim.Value);
-            
-            //Step 6 – Hash Incoming Refresh Token
-            string tokenHash =_jwtService.HashRefreshToken(dto.RefreshToken);
 
-            // Step 7 - Find The Token ; Repository verifies: UserId, Hash, Not Revoked,Not Expired
+            // Hash Incoming Refresh Token
+            string tokenHash = _jwtService.HashRefreshToken(dto.RefreshToken);
+
+            // Find The Token ; Repository verifies: UserId, Hash, Not Revoked,Not Expired
             var existingToken = await _refreshTokenRepository.GetActiveTokenAsync(userId, tokenHash);
 
             if (existingToken == null)
-                return null;
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.InvalidToken
+                };
+            }
 
-            //Step 8 – Load User
+            if (existingToken.UserId != userId)
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.InvalidToken
+                };
+            }
+
+
+            // REPLAY DETECTION
+            if (existingToken.RevokedAt.HasValue)
+            {
+                // SECURITY EVENT
+                int revokedCount = await _refreshTokenRepository.RevokeFamilyAsync(existingToken.TokenFamilyId, ipAddress);
+                await _refreshTokenRepository.SaveChangesAsync();
+
+                // Security Logging: Never put the actual refresh token into logs.
+                //_logger.LogWarning("Refresh token replay detected. UserId: {UserId}, TokenFamilyId: {TokenFamilyId}, IP: {IpAddress}", userId,existingToken.TokenFamilyId, ipAddress);
+
+                // Do NOT issue new tokens
+                //throw new SecurityException("Refresh token replay detected."); // need to change : avoid throw Exception for expected authentication outcomes. use enum
+
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.ReplayDetected,
+                    RevokedTokenCount = revokedCount
+                };
+            }
+
+            if (existingToken.ExpiresAt <= DateTime.UtcNow)
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.Expired
+                };
+            }
+
+            // Load User
             var user = await _userRepository.GetByIdAsync(userId);
 
             if (user == null)
-                return null;
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.UserNotFound
+                };
+            }
 
-            // Step 9 – Generate New Access Token]
+            if (!user.AccountStatus.Equals("Active", StringComparison.OrdinalIgnoreCase))
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.AccountInactive
+                };
+            }
 
+            // Generate New Access Token
             string accessToken = _jwtService.GenerateAccessToken(user);
 
-            // Step 10 – Generate New Refresh Token
+            // Generate New Refresh Token
             string refreshToken = _jwtService.GenerateRefreshToken();
 
-            // Step 11 – Hash New Token
+            // Hash New Token
             string newHash = _jwtService.HashRefreshToken(refreshToken);
-            
-            // Step 12 – Revoke Old Token
+
+            // Revoke Old Token
             existingToken.RevokedAt = DateTime.UtcNow;
             existingToken.RevokedByIp = ipAddress;
             existingToken.ReplacedByTokenHash = newHash;
-            
-            // Step 13 – Save New Refresh Token
-            RefreshToken newEntity = new RefreshToken
+
+            // Save New Refresh Token
+            RefreshToken newToken = new RefreshToken
             {
                 UserId = userId,
                 TokenHash = newHash,
+                TokenFamilyId = existingToken.TokenFamilyId,
                 CreatedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),                
+                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
                 CreatedByIp = ipAddress,
                 UserAgent = userAgent
             };
 
-            await _refreshTokenRepository.AddAsync(newEntity);
+            await _refreshTokenRepository.AddAsync(newToken);
             await _refreshTokenRepository.SaveChangesAsync();
 
-            // Step 14 – Return New Tokens
-            return new LoginResponseDTO
+            // Return New Tokens             
+            return new RefreshTokenResultDTO
             {
-                AccessToken = accessToken,
-                RefreshToken = refreshToken,
-                AccessTokenExpiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
-                RefreshTokenExpiresAt = newEntity.ExpiresAt,
-                TokenType = "Bearer"
+                Result = RefreshTokenResult.Success,
+                Tokens = new LoginResponseDTO
+                {
+                    AccessToken = accessToken,
+                    RefreshToken = refreshToken,
+                    AccessTokenExpiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
+                    RefreshTokenExpiresAt = newToken.ExpiresAt,
+                    TokenType = "Bearer"
+                }
             };
 
         }
 
+        #region LogOut
         public async Task<bool> LogoutAsync(LogoutRequestDTO dto, string? ipAddress)
         {
             if (string.IsNullOrWhiteSpace(dto.RefreshToken))
@@ -213,33 +275,49 @@ namespace ResumeBuilder.API.Services
                 return false;
             }
 
-            // Step 1 - Hash the supplied refresh token
+            // Hash the supplied refresh token
             string tokenHash = _jwtService.HashRefreshToken(dto.RefreshToken);
 
-            // Step 2 - Find the token
+            // Find the token
             var refreshToken = await _refreshTokenRepository.GetByHashAsync(tokenHash);
 
-            // Step 3 - Token doesn't exist
+            // Token doesn't exist
             if (refreshToken == null)
             {
                 return false;
             }
 
-            // Step 4 - Check whether it is already revoked
+            // Check whether it is already revoked
             if (refreshToken.RevokedAt.HasValue)
             {
                 return false;
             }
 
-            // Step 5 - Revoke token
+            // Revoke token
             refreshToken.RevokedAt = DateTime.UtcNow;
 
-            refreshToken.RevokedByIp =  ipAddress;
+            refreshToken.RevokedByIp = ipAddress;
 
-            // Step 6 - Save changes
+            // Save changes
             await _refreshTokenRepository.SaveChangesAsync();
 
             return true;
         }
+
+        public async Task<bool> LogoutAllDevicesAsync(int userId, string? ipAddress)
+        {
+            if (userId <= 0)
+            {
+                return false;
+            }
+
+            await _refreshTokenRepository.RevokeAllForUserAsync(userId, ipAddress);
+
+            await _refreshTokenRepository.SaveChangesAsync();
+
+            return true;
+        }
+
+        #endregion
     }
 }

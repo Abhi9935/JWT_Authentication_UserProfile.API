@@ -6,7 +6,8 @@ namespace ResumeBuilder.API.Services.Interfaces
     {
         Task<bool> RegisterAsync(RegisterDTO dto);
         Task<LoginResponseDTO?> LoginAsync(LoginDTO dto, string? ipAddress, string? userAgent);
-        Task<LoginResponseDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent);
+        Task<RefreshTokenResultDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent);
         Task<bool> LogoutAsync(LogoutRequestDTO dto, string? ipAddress);
+        Task<bool> LogoutAllDevicesAsync(int userId, string? ipAddress);
     }
 }
