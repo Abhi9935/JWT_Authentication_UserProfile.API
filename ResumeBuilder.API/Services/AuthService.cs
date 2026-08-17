@@ -5,6 +5,7 @@ using ResumeBuilder.API.Models.JWT.Models;
 using ResumeBuilder.API.Repositories.Interfaces;
 using ResumeBuilder.API.Services.Interfaces;
 using System.Security;
+using static ResumeBuilder.API.EnumsCodes;
 
 namespace ResumeBuilder.API.Services
 {
@@ -78,47 +79,47 @@ namespace ResumeBuilder.API.Services
 
             if (!passwordVerified)
                 return null;
-            
+
             // Check Account Status
             if (!user.AccountStatus.Equals("Active", StringComparison.OrdinalIgnoreCase))
             {
                 throw new UnauthorizedAccessException("Account is inactive.");
             }
-            
+
             // Generate Access Token
             string accessToken = _jwtService.GenerateAccessToken(user);
-                        
+
             // Generate Refresh Token
             string refreshToken = _jwtService.GenerateRefreshToken();
-                        
+
             // Hash Refresh Token
             string refreshTokenHash = _jwtService.HashRefreshToken(refreshToken);
 
             Guid tokenFamilyId = Guid.NewGuid();
             // Create RefreshToken Entity
-            RefreshToken refreshTokenEntity =  new RefreshToken
-                {
-                    UserId = user.UserId,
-                    TokenHash = refreshTokenHash,
-                    TokenFamilyId = tokenFamilyId,
-                    CreatedAt = DateTime.UtcNow,
-                    ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
+            RefreshToken refreshTokenEntity = new RefreshToken
+            {
+                UserId = user.UserId,
+                TokenHash = refreshTokenHash,
+                TokenFamilyId = tokenFamilyId,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
 
-                    RevokedAt = null,
-                    ReplacedByTokenHash = null,
-                    CreatedByIp = ipAddress,
-                    RevokedByIp = null,
-                    UserAgent = userAgent
-                };
+                RevokedAt = null,
+                ReplacedByTokenHash = null,
+                CreatedByIp = ipAddress,
+                RevokedByIp = null,
+                UserAgent = userAgent
+            };
 
-            
+
             // Save Refresh Token
             await _refreshTokenRepository.AddAsync(refreshTokenEntity);
 
             await _refreshTokenRepository.SaveChangesAsync();
-            
+
             // Return Tokens
-            
+
             return new LoginResponseDTO
             {
                 AccessToken = accessToken,
@@ -135,7 +136,7 @@ namespace ResumeBuilder.API.Services
 
         #endregion
 
-        public async Task<LoginResponseDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent)
+        public async Task<RefreshTokenResultDTO?> RefreshTokenAsync(RefreshTokenRequestDTO dto, string? ipAddress, string? userAgent)
         {
             // Read Expired JWT
             var principal = _jwtService.GetPrincipalFromExpiredToken(dto.AccessToken);
@@ -150,45 +151,75 @@ namespace ResumeBuilder.API.Services
                 return null;
 
             int userId = int.Parse(userIdClaim.Value);
-            
+
             // Hash Incoming Refresh Token
-            string tokenHash =_jwtService.HashRefreshToken(dto.RefreshToken);
+            string tokenHash = _jwtService.HashRefreshToken(dto.RefreshToken);
 
             // Find The Token ; Repository verifies: UserId, Hash, Not Revoked,Not Expired
             var existingToken = await _refreshTokenRepository.GetActiveTokenAsync(userId, tokenHash);
 
             if (existingToken == null)
-                return null;
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.InvalidToken
+                };
+            }
 
             if (existingToken.UserId != userId)
             {
-                return null;
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.InvalidToken
+                };
             }
+
 
             // REPLAY DETECTION
             if (existingToken.RevokedAt.HasValue)
             {
                 // SECURITY EVENT
-                await _refreshTokenRepository.RevokeFamilyAsync(existingToken.TokenFamilyId, ipAddress);
+                int revokedCount = await _refreshTokenRepository.RevokeFamilyAsync(existingToken.TokenFamilyId, ipAddress);
                 await _refreshTokenRepository.SaveChangesAsync();
 
+                // Security Logging: Never put the actual refresh token into logs.
+                //_logger.LogWarning("Refresh token replay detected. UserId: {UserId}, TokenFamilyId: {TokenFamilyId}, IP: {IpAddress}", userId,existingToken.TokenFamilyId, ipAddress);
+
                 // Do NOT issue new tokens
-                throw new SecurityException("Refresh token replay detected."); // need to change : avoid throw Exception for expected authentication outcomes. use enum
+                //throw new SecurityException("Refresh token replay detected."); // need to change : avoid throw Exception for expected authentication outcomes. use enum
+
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.ReplayDetected,
+                    RevokedTokenCount = revokedCount
+                };
             }
 
             if (existingToken.ExpiresAt <= DateTime.UtcNow)
             {
-                return null;
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.Expired
+                };
             }
+
             // Load User
             var user = await _userRepository.GetByIdAsync(userId);
 
             if (user == null)
-                return null;
-
-            if (!user.AccountStatus.Equals("Active",StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.UserNotFound
+                };
+            }
+
+            if (!user.AccountStatus.Equals("Active", StringComparison.OrdinalIgnoreCase))
+            {
+                return new RefreshTokenResultDTO
+                {
+                    Result = RefreshTokenResult.AccountInactive
+                };
             }
 
             // Generate New Access Token
@@ -199,35 +230,39 @@ namespace ResumeBuilder.API.Services
 
             // Hash New Token
             string newHash = _jwtService.HashRefreshToken(refreshToken);
-            
+
             // Revoke Old Token
             existingToken.RevokedAt = DateTime.UtcNow;
             existingToken.RevokedByIp = ipAddress;
             existingToken.ReplacedByTokenHash = newHash;
-            
+
             // Save New Refresh Token
-            RefreshToken newEntity = new RefreshToken
+            RefreshToken newToken = new RefreshToken
             {
                 UserId = userId,
                 TokenHash = newHash,
                 TokenFamilyId = existingToken.TokenFamilyId,
                 CreatedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),                
+                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
                 CreatedByIp = ipAddress,
                 UserAgent = userAgent
             };
 
-            await _refreshTokenRepository.AddAsync(newEntity);
+            await _refreshTokenRepository.AddAsync(newToken);
             await _refreshTokenRepository.SaveChangesAsync();
 
-            // Return New Tokens
-            return new LoginResponseDTO
+            // Return New Tokens             
+            return new RefreshTokenResultDTO
             {
-                AccessToken = accessToken,
-                RefreshToken = refreshToken,
-                AccessTokenExpiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
-                RefreshTokenExpiresAt = newEntity.ExpiresAt,
-                TokenType = "Bearer"
+                Result = RefreshTokenResult.Success,
+                Tokens = new LoginResponseDTO
+                {
+                    AccessToken = accessToken,
+                    RefreshToken = refreshToken,
+                    AccessTokenExpiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
+                    RefreshTokenExpiresAt = newToken.ExpiresAt,
+                    TokenType = "Bearer"
+                }
             };
 
         }
@@ -261,7 +296,7 @@ namespace ResumeBuilder.API.Services
             // Revoke token
             refreshToken.RevokedAt = DateTime.UtcNow;
 
-            refreshToken.RevokedByIp =  ipAddress;
+            refreshToken.RevokedByIp = ipAddress;
 
             // Save changes
             await _refreshTokenRepository.SaveChangesAsync();

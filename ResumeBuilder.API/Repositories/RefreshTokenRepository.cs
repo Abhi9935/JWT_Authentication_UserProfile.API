@@ -87,7 +87,7 @@ namespace ResumeBuilder.API.Repositories
             return tokens.Count;
         }
 
-        public async Task RevokeFamilyAsync(Guid tokenFamilyId, string? ipAddress)
+        public async Task<int> RevokeFamilyAsync(Guid tokenFamilyId, string? ipAddress)
         {
             var tokens =
                 await _context.RefreshTokens
@@ -101,6 +101,7 @@ namespace ResumeBuilder.API.Repositories
                 token.RevokedAt = DateTime.UtcNow;
                 token.RevokedByIp = ipAddress;
             }
+            return tokens.Count;
         }
         public async Task DeleteExpiredTokensAsync()
         {

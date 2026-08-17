@@ -11,7 +11,7 @@ namespace ResumeBuilder.API.Repositories.Interfaces
         Task<IEnumerable<RefreshToken>> GetUserTokensAsync(int userId);
 
         Task<RefreshToken?> GetActiveTokenAsync(int userId, string tokenHash);
-        Task RevokeFamilyAsync(Guid tokenFamilyId, string? ipAddress);
+        Task<int> RevokeFamilyAsync(Guid tokenFamilyId, string? ipAddress);
         Task RevokeAsync(RefreshToken token);
 
         Task RevokeAllAsync(int userId); 
