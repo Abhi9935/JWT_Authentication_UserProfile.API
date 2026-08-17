@@ -48,7 +48,6 @@ namespace ResumeBuilder.API.Repositories
         public Task RevokeAsync(RefreshToken token)
         {
             token.RevokedAt = DateTime.UtcNow;
-
             _context.RefreshTokens.Update(token);
 
             return Task.CompletedTask;
@@ -69,6 +68,40 @@ namespace ResumeBuilder.API.Repositories
             }
         }
 
+        public async Task<int> RevokeAllForUserAsync(int userId, string? ipAddress)
+        {
+            var tokens =
+                await _context.RefreshTokens
+                    .Where(x =>
+                        x.UserId == userId &&
+                        x.RevokedAt == null &&
+                        x.ExpiresAt > DateTime.UtcNow)
+                    .ToListAsync();
+
+            foreach (var token in tokens)
+            {
+                token.RevokedAt = DateTime.UtcNow;
+                token.RevokedByIp = ipAddress;
+            }
+
+            return tokens.Count;
+        }
+
+        public async Task RevokeFamilyAsync(Guid tokenFamilyId, string? ipAddress)
+        {
+            var tokens =
+                await _context.RefreshTokens
+                    .Where(x =>
+                        x.TokenFamilyId == tokenFamilyId &&
+                        x.RevokedAt == null)
+                    .ToListAsync();
+
+            foreach (var token in tokens)
+            {
+                token.RevokedAt = DateTime.UtcNow;
+                token.RevokedByIp = ipAddress;
+            }
+        }
         public async Task DeleteExpiredTokensAsync()
         {
             var expired =

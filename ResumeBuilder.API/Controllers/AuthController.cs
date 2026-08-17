@@ -1,9 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using ResumeBuilder.API.DTOs;
 using ResumeBuilder.API.Models;
 using ResumeBuilder.API.Repositories.Interfaces;
 using ResumeBuilder.API.Services;
 using ResumeBuilder.API.Services.Interfaces;
+using System.Security;
 
 namespace ResumeBuilder.API.Controllers
 {
@@ -159,23 +161,35 @@ namespace ResumeBuilder.API.Controllers
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh(RefreshTokenRequestDTO dto)
         {
-            var response = await _authService.RefreshTokenAsync(dto, HttpContext.Connection.RemoteIpAddress?.ToString(), Request.Headers.UserAgent.ToString());
-
-            if (response == null)
+            try
             {
-                return Unauthorized(new ApiResponse<object>
+                var response = await _authService.RefreshTokenAsync(dto, HttpContext.Connection.RemoteIpAddress?.ToString(), Request.Headers.UserAgent.ToString());
+
+                if (response == null)
                 {
-                    Success = false,
-                    Message = "Invalid refresh token."
+                    return Unauthorized(new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Invalid refresh token."
+                    });
+                }
+
+                return Ok(new ApiResponse<LoginResponseDTO>
+                {
+                    Success = true,
+                    Message = "Token refreshed successfully.",
+                    Data = response
                 });
             }
-
-            return Ok(new ApiResponse<LoginResponseDTO>
+            catch (SecurityException)
             {
-                Success = true,
-                Message = "Token refreshed successfully.",
-                Data = response
-            });
+                return Unauthorized(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Your session has expired or was revoked. Please login again."
+                    });
+            }
         }
 
         [HttpPost("logout")]
@@ -206,6 +220,56 @@ namespace ResumeBuilder.API.Controllers
                 {
                     Success = true,
                     Message = "Logout successful.",
+                    Data = null
+                });
+        }
+
+        [Authorize]
+        [HttpPost("logout-all")]
+        public async Task<IActionResult> LogoutAllDevices()
+        {
+            var userIdClaim = User.FindFirst("UserId");
+
+            if (userIdClaim == null)
+            {
+                return Unauthorized(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Invalid authentication token."
+                    });
+            }
+
+            if (!int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return Unauthorized(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Invalid authentication token."
+                    });
+            }
+
+            string? ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+            bool result =
+                await _authService.LogoutAllDevicesAsync(userId, ipAddress);
+
+            if (!result)
+            {
+                return BadRequest(
+                    new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message ="Unable to logout from all devices."
+                    });
+            }
+
+            return Ok(
+                new ApiResponse<object>
+                {
+                    Success = true,
+                    Message ="Logged out from all devices successfully.",
                     Data = null
                 });
         }
