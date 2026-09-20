@@ -1,8 +1,25 @@
 # ResumeBuilder.API
 ## .NET Web API — Complete Architecture & Project Structure
 
-### Project Overview
+### Major Key Points
 
+- Built a layered **ASP.NET Core Web API** using Controller → Service → Repository architecture.
+- Implemented **User CRUD, Registration, Login, and JWT-based authentication**.
+- Used **DTOs** to separate API contracts from database entities.
+- Implemented secure **password hashing**; plaintext passwords are never stored.
+- Used short-lived **JWT Access Tokens** for authenticated API requests.
+- Implemented a secure **Refresh Token architecture** for maintaining user sessions.
+- Refresh tokens are stored as **hashed values** in the database rather than plaintext.
+- Implemented **Refresh Token Rotation** after every successful refresh operation.
+- Added **Token Family tracking** to manage individual user sessions/devices.
+- Implemented **Refresh Token Replay Detection** to detect reuse of revoked tokens.
+- Added **Current Device Logout** and **Logout All Devices** functionality.
+- Used **database transactions and concurrency protection** during token rotation.
+- Implemented token **expiration, revocation, and replacement tracking** for session security.
+- Designed the authentication flow to support **multiple active devices securely**.
+- Followed security principles such as **HTTPS, secure secrets, token validation, least exposure, and separation of responsibilities**.
+
+### Project Overview
 This project is a .NET Web API application for managing users and their
 profile/resume-related information.
 
