@@ -1,45 +1,68 @@
 # ResumeBuilder.API
-Authentication Architecture
+## .NET Web API — Complete Architecture & Project Structure
 
-                  AuthController
-                       │
-                       ▼
-                  IAuthService
-                       │
-                       ▼
-                  AuthService
-                  /    |    \
-                 /     |     \
-                ▼      ▼      ▼
-             User    JWT    Refresh
-           Repository Service Repository
-                \      |      /
-                 \     |     /
-                    SQL Server
+### Project Overview
 
-  REGISTER
-   │
-   ▼
-  Users
+This project is a .NET Web API application for managing users and their
+profile/resume-related information.
 
-LOGIN
-   │
-   ├── Access Token
-   │
-   └── Refresh Token
-           │
-           ▼
-      RefreshTokens
+The application currently includes:
 
+- User CRUD
+- User Registration
+- User Login
+- Password hashing
+- JWT Access Token
+- Refresh Token
+- Refresh Token Rotation
+- Refresh Token Repository
+- Token Family
+- Refresh Token Replay Detection
+- Logout Current Device
+- Logout All Devices
+- Concurrency-aware Refresh Token Rotation
+- Transactional Refresh Token Rotation
+- Repository Pattern
+- Entity Framework Core
+- SQL Server
+- DTO-based API contracts
+- Authentication and Authorization foundation
 
-REFRESH
-   │
-   ├── Revoke Old Token
-   │
-   └── Create New Token
+---
 
+# 1. High-Level Architecture
 
-LOGOUT
-   │
-   ▼
-Revoke Refresh Token
+The application follows a layered architecture.
+
+```text
+                    CLIENT
+                      |
+                      | HTTP / HTTPS
+                      v
+              +------------------+
+              |   API Layer      |
+              |   Controllers    |
+              +------------------+
+                      |
+                      v
+              +------------------+
+              | Service Layer    |
+              | Business Logic   |
+              +------------------+
+                      |
+                      v
+              +------------------+
+              | Repository Layer |
+              | Data Access      |
+              +------------------+
+                      |
+                      v
+              +------------------+
+              | Entity Framework |
+              | Core / DbContext  |
+              +------------------+
+                      |
+                      v
+              +------------------+
+              |   SQL Server     |
+              +------------------+
