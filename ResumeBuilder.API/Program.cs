@@ -38,10 +38,10 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 });
 
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
+builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-builder.Services.AddScoped<IAuthService, AuthService>();
 
 //Register the JWT settings and service:
 
@@ -133,6 +133,35 @@ builder.Services.AddSwaggerGen(options =>
 */
 // ... (keep the rest of your app building/mapping logic identical)
 
+//  REGISTER CORS SERVICES ---
+
+/* for productions
+var myAllowSpecificOrigins = "_myAllowSpecificOrigins";
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(name: myAllowSpecificOrigins,
+                      policy =>
+                      {
+                          policy.WithOrigins("http://localhost:4200") // Replace with your frontend domains
+                                .AllowAnyHeader()
+                                .AllowAnyMethod();
+                      });
+});
+*/
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()   // Allows requests from any domain
+              .AllowAnyMethod()   // Allows GET, POST, PUT, DELETE, etc.
+              .AllowAnyHeader();  // Allows any HTTP headers
+    });
+});
+
+builder.Services.AddControllers();
+
+
+
 //*********************** Add services to the container end.***********************
 var app = builder.Build();
 
@@ -157,6 +186,12 @@ if (app.Environment.IsDevelopment())
 
 
 app.UseHttpsRedirection();
+
+// ENABLE CORS MIDDLEWARE ---
+// Crucial: This must be placed after UseRouting() but before UseAuthorization()
+app.UseRouting();
+app.UseCors("AllowAll"); // for Development, allows all origins, methods, and headers. In production, use a specific policy instead.
+//app.UseCors(myAllowSpecificOrigins);
 
 app.UseAuthentication();
 

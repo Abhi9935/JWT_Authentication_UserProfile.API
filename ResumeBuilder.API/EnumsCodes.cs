@@ -2,12 +2,10 @@
 {
     public class EnumsCodes
     {
-        public enum Skills
+        public enum UserType
         {
-            Specialization=1,
-            Intermediate=2,
-            Basics=3,
-            Others=4
+            Admin,
+            User
         }
         public enum AccountStatus
         {
@@ -23,6 +21,13 @@
             ReplayDetected,
             UserNotFound,
             AccountInactive
+        }
+        public enum Skills
+        {
+            Specialization = 1,
+            Intermediate = 2,
+            Basics = 3,
+            Others = 4
         }
     }
 }
