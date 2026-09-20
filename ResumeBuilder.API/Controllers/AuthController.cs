@@ -18,59 +18,43 @@ namespace ResumeBuilder.API.Controllers
         private readonly IJwtService _jwtService;
         private readonly IAuthService _authService;
 
-        public AuthController(IUserRepository userRepository, IJwtService jwtService)
+        public AuthController(IAuthService authService, IJwtService jwtService)
         {
-            _userRepository = userRepository;
+            _authService = authService;
             _jwtService = jwtService;
         }
 
         [HttpPost("register")]
-        public async Task<IActionResult> Register(RegisterDTO model)
+        public async Task<IActionResult> Register(RegistrationRequestDTO model)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
-
-            // Check duplicate email
-            if (await _userRepository.EmailExistsAsync(model.UserEmail))
+            
+            try
             {
-                return BadRequest(new AuthResponseDTO
+                var response = await _authService.RegisterAsync(model);
+                if(!response)
+                {
+                    return BadRequest(new AuthResponseDTO
+                    {
+                        Success = false,
+                        Message = "Email already exists."
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new AuthResponseDTO
                 {
                     Success = false,
-                    Message = "Email already exists."
+                    Message = $"An error occurred during registration: {ex.Message}"
                 });
             }
-
-            var user = new User
-            {
-                Username = model.Username,
-                UserType = model.UserType,
-                UserEmail = model.UserEmail,
-
-                // BCrypt Password Hash
-                UserHashedPass = BCrypt.Net.BCrypt.HashPassword(model.Password),
-
-                AccountStatus = "Active",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            await _userRepository.AddAsync(user);
-            await _userRepository.SaveAsync();
-
-            var userDTO = new UserDTO
-            {
-                UserId = user.UserId,
-                Username = user.Username,
-                UserEmail = user.UserEmail,
-                UserType = user.UserType,
-                AccountStatus = user.AccountStatus
-            };
 
             return Ok(new AuthResponseDTO
             {
                 Success = true,
-                Message = "Registration successful.",
-                User = userDTO
+                Message = "Registration successful."
             });
         }
 

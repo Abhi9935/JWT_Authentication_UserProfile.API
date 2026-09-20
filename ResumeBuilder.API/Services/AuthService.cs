@@ -12,11 +12,8 @@ namespace ResumeBuilder.API.Services
     public class AuthService : IAuthService
     {
         private readonly IUserRepository _userRepository;
-
         private readonly IRefreshTokenRepository _refreshTokenRepository;
-
         private readonly IJwtService _jwtService;
-
         //private readonly IOptions<JwtSettings> _jwtSettings;
         private readonly JwtSettings _jwtSettings;
 
@@ -30,7 +27,7 @@ namespace ResumeBuilder.API.Services
 
         #region Register
 
-        public async Task<bool> RegisterAsync(RegisterDTO dto)
+        public async Task<bool> RegisterAsync(RegistrationRequestDTO dto)
         {
             // Check whether email already exists
             var existingUser = await _userRepository.GetUserByEmailAsync(dto.UserEmail);
@@ -45,7 +42,7 @@ namespace ResumeBuilder.API.Services
             {
                 Username = dto.Username,
                 UserEmail = dto.UserEmail.Trim().ToLower(),
-                UserType = dto.UserType,
+                UserType = UserType.User.ToString(),
                 UserHashedPass = passwordHash,
                 AccountStatus = "Active",
                 CreatedAt = DateTime.UtcNow,
