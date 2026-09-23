@@ -1,4 +1,4 @@
-# ResumeBuilder.API
+# ResumeBuilder.API -User, Registration, Login, and JWT-based authentication, Refresh Token.
 ## .NET Web API — Complete Architecture & Project Structure
 
 ### Major Key Points
